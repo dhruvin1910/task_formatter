@@ -1,0 +1,114 @@
+from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, PlainTextResponse, HTMLResponse
+from pydantic import BaseModel
+from dotenv import load_dotenv
+import httpx
+import os
+from datetime import datetime
+from pathlib import Path
+
+load_dotenv()
+
+app = FastAPI(title="Daily Task Formatter")
+
+# ─── CONFIG ───────────────────────────────────────────────────────────────────
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
+LOG_FILE     = Path("/tmp/work_log.txt")  # /tmp persists during session on Railway
+# ──────────────────────────────────────────────────────────────────────────────
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+class GenerateRequest(BaseModel):
+    raw: str
+
+
+class SaveRequest(BaseModel):
+    formatted: str
+
+
+@app.get("/")
+def index():
+    return FileResponse("static/index.html")
+
+
+@app.post("/generate")
+async def generate(req: GenerateRequest):
+    if not req.raw.strip():
+        raise HTTPException(400, "raw input is empty")
+
+    prompt = f"""You are a work log formatter. Convert the raw notes below into a clean daily work summary.
+
+Rules:
+- Start with exactly: "Today's work"
+- Add a blank line after "Today's work"
+- List each task on its own line as a clear, professional one-line description
+- Fix any spelling or grammar
+- No bullet points, numbers, or dashes — plain task lines only
+- Add a blank line between each task
+- Output only the formatted result, nothing else
+
+Raw notes:
+{req.raw}"""
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        res = await client.post(
+            GROQ_URL,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+            },
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 600,
+                "temperature": 0.3,
+            },
+        )
+
+    if res.status_code != 200:
+        try:
+            detail = res.json().get("error", {}).get("message", f"HTTP {res.status_code}")
+        except Exception:
+            detail = f"HTTP {res.status_code} — {res.text[:300]}"
+        raise HTTPException(502, detail)
+
+    try:
+        result = res.json()["choices"][0]["message"]["content"].strip()
+    except Exception:
+        raise HTTPException(502, f"Unexpected Groq response: {res.text[:300]}")
+
+    return {"formatted": result}
+
+
+@app.post("/save")
+def save(req: SaveRequest):
+    if not req.formatted.strip():
+        raise HTTPException(400, "nothing to save")
+
+    now = datetime.now()
+    date_str = now.strftime("%a, %d %b %Y")
+    time_str = now.strftime("%H:%M")
+    separator = "─" * 40
+    entry = f"{separator}\n{date_str} · {time_str}\n{separator}\n{req.formatted.strip()}\n\n"
+
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(entry)
+
+    return {"message": "saved"}
+
+
+@app.get("/log")
+def get_log():
+    if not LOG_FILE.exists():
+        return PlainTextResponse("no entries yet")
+    return PlainTextResponse(LOG_FILE.read_text(encoding="utf-8"))
+
+
+@app.delete("/log")
+def clear_log():
+    if LOG_FILE.exists():
+        LOG_FILE.unlink()
+    return {"message": "log cleared"}
