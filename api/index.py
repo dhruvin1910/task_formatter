@@ -87,9 +87,9 @@ def save(req: SaveRequest):
 
     now = datetime.now()
     date_str = now.strftime("%a, %d %b %Y")
-    time_str = now.strftime("%H:%M")
+    
     separator = "─" * 40
-    entry = f"{separator}\n{date_str} · {time_str}\n{separator}\n{req.formatted.strip()}\n\n"
+    entry = f"{separator}\n{date_str}\n{separator}\n{req.formatted.strip()}\n\n"
 
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(entry)
