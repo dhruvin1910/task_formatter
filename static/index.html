@@ -252,6 +252,7 @@ e.g. fixed gatepass bug, setup uest erp, added notification permissions"></texta
     <div class="log-actions">
       <button class="btn btn-ghost btn-sm" onclick="loadLog()">refresh</button>
       <button class="btn btn-ghost btn-sm" onclick="copyLog()">copy all</button>
+      <button class="btn btn-ghost btn-sm" onclick="downloadLog()">⬇ download</button>
       <button class="btn btn-ghost btn-sm" onclick="clearLog()">clear</button>
     </div>
   </div>
@@ -365,6 +366,28 @@ function copyLog() {
   if (text && text !== 'no entries yet') {
     navigator.clipboard.writeText(text);
     setStatus('log copied!', 'success');
+  }
+}
+
+async function downloadLog() {
+  try {
+    const res = await fetch('/log');
+    const text = await res.text();
+    if (!text.trim() || text === 'no entries yet') {
+      setStatus('no log to download', 'error');
+      return;
+    }
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const date = new Date().toISOString().slice(0, 10);
+    a.download = `work_log_${date}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatus('log downloaded!', 'success');
+  } catch {
+    setStatus('download failed', 'error');
   }
 }
 
