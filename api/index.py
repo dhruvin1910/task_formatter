@@ -36,7 +36,7 @@ async def generate(req: GenerateRequest):
     if not req.raw.strip():
         raise HTTPException(400, "raw input is empty")
 
-    prompt = f"""You are a work log formatter. Convert the raw notes below into a clean daily work summary.
+    prompt = f"""You are a work log formatter. Convert the raw notes below mentioned rules.
 
 Rules:
 - Start with exactly: "Today's work"
