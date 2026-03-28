@@ -42,7 +42,7 @@ Rules:
 - Start with exactly: "Today's work"
 - Add a blank line after "Today's work"
 - List each task on its own line as a clear
-- Fix any spelling or grammar
+- Fix any spelling or grammar and do not add anything else
 - No bullet points, numbers, or dashes — plain task lines only
 - Add a blank line between each task
 - Output only the formatted result, nothing else
