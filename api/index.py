@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, PlainTextResponse, HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import httpx
@@ -12,13 +11,11 @@ load_dotenv()
 
 app = FastAPI(title="Daily Task Formatter")
 
-# ─── CONFIG ───────────────────────────────────────────────────────────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
-LOG_FILE     = Path("../logs/work_log.txt")  # /tmp persists during session on Railway
-# ──────────────────────────────────────────────────────────────────────────────
+LOG_FILE     = Path("/tmp/work_log.txt")
 
-app.mount("/static", StaticFiles(directory="../static"), name="static")
+HTML_CONTENT = open(Path(__file__).parent.parent / "static" / "index.html", encoding="utf-8").read()
 
 
 class GenerateRequest(BaseModel):
@@ -29,9 +26,9 @@ class SaveRequest(BaseModel):
     formatted: str
 
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 def index():
-    return FileResponse("../static/index.html")
+    return HTMLResponse(content=HTML_CONTENT)
 
 
 @app.post("/generate")
@@ -44,7 +41,7 @@ async def generate(req: GenerateRequest):
 Rules:
 - Start with exactly: "Today's work"
 - Add a blank line after "Today's work"
-- List each task on its own line as a clear
+- List each task on its own line as a clear, professional one-line description
 - Fix any spelling or grammar
 - No bullet points, numbers, or dashes — plain task lines only
 - Add a blank line between each task
@@ -90,8 +87,9 @@ def save(req: SaveRequest):
 
     now = datetime.now()
     date_str = now.strftime("%a, %d %b %Y")
+    time_str = now.strftime("%H:%M")
     separator = "─" * 40
-    entry = f"{separator}\n{date_str}\n{separator}\n{req.formatted.strip()}\n\n"
+    entry = f"{separator}\n{date_str} · {time_str}\n{separator}\n{req.formatted.strip()}\n\n"
 
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(entry)
