@@ -373,7 +373,7 @@ def export_pdf():
         "title", parent=styles["Normal"],
         fontSize=18, fontName="Helvetica-Bold",
         textColor=colors.HexColor("#111111"),
-        spaceAfter=4,
+        spaceAfter=8,
     )
     subtitle_style = ParagraphStyle(
         "subtitle", parent=styles["Normal"],
@@ -435,7 +435,7 @@ def export_pdf():
     doc.build(story)
     buffer.seek(0)
 
-    filename = f"task_report_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+    filename = f"task_report.pdf"
     return StreamingResponse(
         buffer,
         media_type="application/pdf",
