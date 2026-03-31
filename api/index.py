@@ -88,7 +88,7 @@ async def generate(req: GenerateRequest):
 Rules:
 - Start with exactly: "Today's work"
 - Add a blank line after "Today's work"
-- List each task on its own line as a clear, professional one-line description
+- List each task on its own line as a clear and no need to give a descriptions.
 - Fix any spelling or grammar
 - No bullet points, numbers, or dashes — plain task lines only
 - Add a blank line between each task
