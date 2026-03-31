@@ -165,3 +165,120 @@ def clear_log():
         cur.execute("DELETE FROM work_log")
     conn.close()
     return {"message": "log cleared"}
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin():
+    ensure_table()
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, formatted_text, created_at FROM work_log ORDER BY created_at DESC")
+        rows = cur.fetchall()
+    conn.close()
+
+    rows_html = ""
+    for row in rows:
+        dt = row["created_at"]
+        date_str = dt.strftime("%a, %d %b %Y · %H:%M")
+        text = row["formatted_text"].replace("\n", "<br>")
+        rows_html += f"""
+        <tr>
+            <td>{row['id']}</td>
+            <td>{date_str}</td>
+            <td>{text}</td>
+            <td><button onclick="deleteRow({row['id']})" class="del-btn">delete</button></td>
+        </tr>"""
+
+    total = len(rows)
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Work Log — Admin</title>
+<style>
+  *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  :root {{
+    --bg: #0f0f0f; --surface: #171717; --border: #2a2a2a;
+    --text: #e8e8e8; --muted: #888; --dim: #555;
+    --success: #4ade80; --error: #f87171;
+    --font: 'JetBrains Mono', 'Fira Code', monospace;
+  }}
+  body {{ background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; padding: 2rem 1.5rem; }}
+  .app {{ max-width: 1000px; margin: 0 auto; }}
+  .header {{ display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 1rem; border-bottom: 1px solid var(--border); margin-bottom: 1.5rem; }}
+  .header h1 {{ font-size: 14px; font-weight: 500; }}
+  .header a {{ font-size: 11px; color: var(--muted); text-decoration: none; }}
+  .header a:hover {{ color: var(--text); }}
+  .stats {{ font-size: 11px; color: var(--dim); margin-bottom: 1rem; }}
+  table {{ width: 100%; border-collapse: collapse; }}
+  th {{ font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); }}
+  td {{ padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; line-height: 1.7; }}
+  td:first-child {{ color: var(--dim); width: 40px; }}
+  td:nth-child(2) {{ color: var(--muted); white-space: nowrap; width: 180px; }}
+  td:last-child {{ width: 80px; }}
+  tr:hover td {{ background: var(--surface); }}
+  .del-btn {{ background: transparent; border: 1px solid #3a2020; color: var(--error); padding: 3px 10px; border-radius: 4px; cursor: pointer; font-family: var(--font); font-size: 10px; }}
+  .del-btn:hover {{ background: #2a1010; }}
+  .empty {{ padding: 3rem; text-align: center; color: var(--dim); }}
+  .actions {{ display: flex; gap: 8px; margin-bottom: 1.25rem; }}
+  .btn {{ padding: 6px 16px; font-size: 11px; font-family: var(--font); border-radius: 6px; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--muted); }}
+  .btn:hover {{ background: var(--surface); color: var(--text); }}
+  .status {{ font-size: 11px; color: var(--dim); margin-left: auto; align-self: center; }}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <h1>work log — admin</h1>
+    <a href="/">← back to app</a>
+  </div>
+
+  <div class="actions">
+    <button class="btn" onclick="location.reload()">refresh</button>
+    <button class="btn" onclick="clearAll()" style="border-color:#3a2020;color:var(--error)">clear all</button>
+    <span class="status" id="status">{total} entr{'y' if total == 1 else 'ies'}</span>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>date</th>
+        <th>content</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="tbody">
+      {'<tr><td colspan="4" class="empty">no entries yet</td></tr>' if not rows_html else rows_html}
+    </tbody>
+  </table>
+</div>
+
+<script>
+async function deleteRow(id) {{
+  if (!confirm('Delete this entry?')) return;
+  const res = await fetch('/admin/delete/' + id, {{ method: 'DELETE' }});
+  if (res.ok) location.reload();
+}}
+
+async function clearAll() {{
+  if (!confirm('Delete ALL entries? This cannot be undone.')) return;
+  const res = await fetch('/log', {{ method: 'DELETE' }});
+  if (res.ok) location.reload();
+}}
+</script>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
+
+@app.delete("/admin/delete/{entry_id}")
+def delete_entry(entry_id: int):
+    ensure_table()
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM work_log WHERE id = %s", (entry_id,))
+    conn.close()
+    return {"message": "deleted"}
