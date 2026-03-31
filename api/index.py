@@ -373,11 +373,11 @@ def export_pdf():
         "title", parent=styles["Normal"],
         fontSize=18, fontName="Helvetica-Bold",
         textColor=colors.HexColor("#111111"),
-        spaceAfter=8,
+        spaceAfter=10,
     )
     subtitle_style = ParagraphStyle(
         "subtitle", parent=styles["Normal"],
-        fontSize=9, fontName="Helvetica",
+        fontSize=8, fontName="Helvetica",
         textColor=colors.HexColor("#888888"),
         spaceAfter=16,
     )
