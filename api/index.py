@@ -13,9 +13,8 @@ load_dotenv()
 
 app = FastAPI(title="Daily Task Formatter")
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
-
+GROQ_API_KEY   = os.getenv("GROQ_API_KEY", "")
+GROQ_URL       = "https://api.groq.com/openai/v1/chat/completions"
 MYSQL_HOST     = os.getenv("MYSQL_ADDON_HOST", "")
 MYSQL_PORT     = int(os.getenv("MYSQL_ADDON_PORT", "3306"))
 MYSQL_DB       = os.getenv("MYSQL_ADDON_DB", "")
@@ -23,6 +22,8 @@ MYSQL_USER     = os.getenv("MYSQL_ADDON_USER", "")
 MYSQL_PASSWORD = os.getenv("MYSQL_ADDON_PASSWORD", "")
 
 HTML_CONTENT = open(Path(__file__).parent.parent / "static" / "index.html", encoding="utf-8").read()
+
+_db_initialized = False
 
 
 def get_conn():
@@ -38,7 +39,10 @@ def get_conn():
     )
 
 
-def init_db():
+def ensure_table():
+    global _db_initialized
+    if _db_initialized:
+        return
     conn = get_conn()
     with conn.cursor() as cur:
         cur.execute("""
@@ -49,11 +53,7 @@ def init_db():
             )
         """)
     conn.close()
-
-
-@app.on_event("startup")
-def startup():
-    init_db()
+    _db_initialized = True
 
 
 class GenerateRequest(BaseModel):
@@ -123,6 +123,7 @@ def save(req: SaveRequest):
     if not req.formatted.strip():
         raise HTTPException(400, "nothing to save")
 
+    ensure_table()
     conn = get_conn()
     with conn.cursor() as cur:
         cur.execute(
@@ -130,12 +131,12 @@ def save(req: SaveRequest):
             (req.formatted.strip(),)
         )
     conn.close()
-
     return {"message": "saved"}
 
 
 @app.get("/log")
 def get_log():
+    ensure_table()
     conn = get_conn()
     with conn.cursor() as cur:
         cur.execute("SELECT formatted_text, created_at FROM work_log ORDER BY created_at DESC")
@@ -158,6 +159,7 @@ def get_log():
 
 @app.delete("/log")
 def clear_log():
+    ensure_table()
     conn = get_conn()
     with conn.cursor() as cur:
         cur.execute("DELETE FROM work_log")
