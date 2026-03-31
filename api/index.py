@@ -4,10 +4,11 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import httpx
 import os
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 import pymysql
 import pymysql.cursors
+from typing import Optional
 
 load_dotenv()
 
@@ -49,9 +50,16 @@ def ensure_table():
             CREATE TABLE IF NOT EXISTS work_log (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 formatted_text TEXT NOT NULL,
+                work_date DATE NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # add work_date column if upgrading from old schema
+        try:
+            cur.execute("ALTER TABLE work_log ADD COLUMN work_date DATE")
+            cur.execute("UPDATE work_log SET work_date = DATE(created_at) WHERE work_date IS NULL")
+        except Exception:
+            pass
     conn.close()
     _db_initialized = True
 
@@ -62,6 +70,7 @@ class GenerateRequest(BaseModel):
 
 class SaveRequest(BaseModel):
     formatted: str
+    work_date: Optional[str] = None  # YYYY-MM-DD, defaults to today
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -123,12 +132,14 @@ def save(req: SaveRequest):
     if not req.formatted.strip():
         raise HTTPException(400, "nothing to save")
 
+    work_date = req.work_date if req.work_date else date.today().isoformat()
+
     ensure_table()
     conn = get_conn()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO work_log (formatted_text) VALUES (%s)",
-            (req.formatted.strip(),)
+            "INSERT INTO work_log (formatted_text, work_date) VALUES (%s, %s)",
+            (req.formatted.strip(), work_date)
         )
     conn.close()
     return {"message": "saved"}
@@ -139,7 +150,7 @@ def get_log():
     ensure_table()
     conn = get_conn()
     with conn.cursor() as cur:
-        cur.execute("SELECT formatted_text, created_at FROM work_log ORDER BY created_at DESC")
+        cur.execute("SELECT formatted_text, work_date FROM work_log ORDER BY work_date DESC")
         rows = cur.fetchall()
     conn.close()
 
@@ -149,10 +160,11 @@ def get_log():
     separator = "─" * 40
     entries = []
     for row in rows:
-        dt = row["created_at"]
-        date_str = dt.strftime("%a, %d %b %Y")
-        time_str = dt.strftime("%H:%M")
-        entries.append(f"{separator}\n{date_str} · {time_str}\n{separator}\n{row['formatted_text']}")
+        d = row["work_date"]
+        if isinstance(d, str):
+            d = datetime.strptime(d, "%Y-%m-%d").date()
+        date_str = d.strftime("%a, %d %b %Y")
+        entries.append(f"{separator}\n{date_str}\n{separator}\n{row['formatted_text']}")
 
     return PlainTextResponse("\n\n".join(entries))
 
@@ -172,21 +184,25 @@ def admin():
     ensure_table()
     conn = get_conn()
     with conn.cursor() as cur:
-        cur.execute("SELECT id, formatted_text, created_at FROM work_log ORDER BY created_at DESC")
+        cur.execute("SELECT id, formatted_text, work_date FROM work_log ORDER BY work_date DESC")
         rows = cur.fetchall()
     conn.close()
 
     rows_html = ""
     for row in rows:
-        dt = row["created_at"]
-        date_str = dt.strftime("%a, %d %b %Y · %H:%M")
+        d = row["work_date"]
+        if isinstance(d, str):
+            d = datetime.strptime(d, "%Y-%m-%d").date()
+        date_str = d.strftime("%a, %d %b %Y")
         text = row["formatted_text"].replace("\n", "<br>")
         rows_html += f"""
         <tr>
             <td>{row['id']}</td>
             <td>{date_str}</td>
             <td>{text}</td>
-            <td><button onclick="deleteRow({row['id']})" class="del-btn">delete</button></td>
+            <td>
+              <button onclick="deleteRow({row['id']})" class="del-btn">delete</button>
+            </td>
         </tr>"""
 
     total = len(rows)
@@ -202,7 +218,7 @@ def admin():
   :root {{
     --bg: #0f0f0f; --surface: #171717; --border: #2a2a2a;
     --text: #e8e8e8; --muted: #888; --dim: #555;
-    --success: #4ade80; --error: #f87171;
+    --success: #4ade80; --error: #f87171; --info: #60a5fa;
     --font: 'JetBrains Mono', 'Fira Code', monospace;
   }}
   body {{ background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; padding: 2rem 1.5rem; }}
@@ -211,21 +227,29 @@ def admin():
   .header h1 {{ font-size: 14px; font-weight: 500; }}
   .header a {{ font-size: 11px; color: var(--muted); text-decoration: none; }}
   .header a:hover {{ color: var(--text); }}
-  .stats {{ font-size: 11px; color: var(--dim); margin-bottom: 1rem; }}
+  .add-form {{ border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 1.5rem; background: var(--surface); }}
+  .add-form h2 {{ font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 10px; }}
+  .form-row {{ display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }}
+  .form-row input[type=date] {{ padding: 6px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: var(--font); font-size: 12px; }}
+  .form-row textarea {{ flex: 1; min-width: 200px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: var(--font); font-size: 12px; line-height: 1.6; resize: vertical; min-height: 80px; }}
+  .add-btn {{ padding: 6px 16px; font-size: 11px; font-family: var(--font); border-radius: 6px; cursor: pointer; background: var(--text); color: var(--bg); border: none; white-space: nowrap; }}
+  .add-btn:hover {{ opacity: 0.85; }}
   table {{ width: 100%; border-collapse: collapse; }}
   th {{ font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); }}
   td {{ padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; line-height: 1.7; }}
   td:first-child {{ color: var(--dim); width: 40px; }}
-  td:nth-child(2) {{ color: var(--muted); white-space: nowrap; width: 180px; }}
+  td:nth-child(2) {{ color: var(--muted); white-space: nowrap; width: 160px; }}
   td:last-child {{ width: 80px; }}
   tr:hover td {{ background: var(--surface); }}
   .del-btn {{ background: transparent; border: 1px solid #3a2020; color: var(--error); padding: 3px 10px; border-radius: 4px; cursor: pointer; font-family: var(--font); font-size: 10px; }}
   .del-btn:hover {{ background: #2a1010; }}
   .empty {{ padding: 3rem; text-align: center; color: var(--dim); }}
-  .actions {{ display: flex; gap: 8px; margin-bottom: 1.25rem; }}
+  .actions {{ display: flex; gap: 8px; margin-bottom: 1.25rem; align-items: center; }}
   .btn {{ padding: 6px 16px; font-size: 11px; font-family: var(--font); border-radius: 6px; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--muted); }}
   .btn:hover {{ background: var(--surface); color: var(--text); }}
-  .status {{ font-size: 11px; color: var(--dim); margin-left: auto; align-self: center; }}
+  .status {{ font-size: 11px; color: var(--dim); margin-left: auto; }}
+  .status.ok {{ color: var(--success); }}
+  .status.err {{ color: var(--error); }}
 </style>
 </head>
 <body>
@@ -235,10 +259,20 @@ def admin():
     <a href="/">← back to app</a>
   </div>
 
+  <div class="add-form">
+    <h2>add previous task</h2>
+    <div class="form-row">
+      <input type="date" id="prev-date" />
+      <textarea id="prev-text" placeholder="Paste formatted task here...&#10;Today's work&#10;&#10;Task one&#10;&#10;Task two"></textarea>
+      <button class="add-btn" onclick="addPrev()">add ↗</button>
+    </div>
+    <span class="status" id="add-status" style="margin-top:6px;display:block;"></span>
+  </div>
+
   <div class="actions">
     <button class="btn" onclick="location.reload()">refresh</button>
     <button class="btn" onclick="clearAll()" style="border-color:#3a2020;color:var(--error)">clear all</button>
-    <span class="status" id="status">{total} entr{'y' if total == 1 else 'ies'}</span>
+    <span class="status">{total} entr{'y' if total == 1 else 'ies'}</span>
   </div>
 
   <table>
@@ -257,6 +291,27 @@ def admin():
 </div>
 
 <script>
+// set default date to today
+document.getElementById('prev-date').value = new Date().toISOString().slice(0,10);
+
+async function addPrev() {{
+  const d = document.getElementById('prev-date').value;
+  const t = document.getElementById('prev-text').value.trim();
+  const st = document.getElementById('add-status');
+  if (!d || !t) {{ st.textContent = 'fill in date and content'; st.className = 'status err'; return; }}
+  const res = await fetch('/save', {{
+    method: 'POST',
+    headers: {{ 'Content-Type': 'application/json' }},
+    body: JSON.stringify({{ formatted: t, work_date: d }})
+  }});
+  if (res.ok) {{
+    st.textContent = 'saved!'; st.className = 'status ok';
+    setTimeout(() => location.reload(), 800);
+  }} else {{
+    st.textContent = 'error saving'; st.className = 'status err';
+  }}
+}}
+
 async function deleteRow(id) {{
   if (!confirm('Delete this entry?')) return;
   const res = await fetch('/admin/delete/' + id, {{ method: 'DELETE' }});
