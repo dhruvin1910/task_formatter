@@ -83,12 +83,12 @@ async def generate(req: GenerateRequest):
     if not req.raw.strip():
         raise HTTPException(400, "raw input is empty")
 
-    prompt = f"""You are a work log formatter. Convert the raw notes below into a clean daily work summary.
+    prompt = f"""You are a work log formatter, Convert the raw notes below mentioned rules.
 
 Rules:
 - Start with exactly: "Today's work"
 - Add a blank line after "Today's work"
-- List each task on its own line as a clear, professional one-line description
+- List each task on its own line as a clear, don't give any description.
 - Fix any spelling or grammar
 - No bullet points, numbers, or dashes — plain task lines only
 - Add a blank line between each task
@@ -397,9 +397,16 @@ def export_pdf():
     story = []
 
     # Header
-    story.append(Paragraph("Work Log", title_style))
-    generated = datetime.now().strftime("%d %b %Y")
-    story.append(Paragraph(f"Generated on {generated} · {len(rows)} entries", subtitle_style))
+    story.append(Paragraph("Task Report", title_style))
+    if rows:
+        dates = [row["work_date"] for row in rows]
+        dates = [datetime.strptime(d, "%Y-%m-%d").date() if isinstance(d, str) else d for d in dates]
+        min_date = min(dates).strftime("%d %b %Y")
+        max_date = max(dates).strftime("%d %b %Y")
+        date_range = f"{min_date} — {max_date}" if min_date != max_date else min_date
+    else:
+        date_range = ""
+    story.append(Paragraph(date_range, subtitle_style))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#dddddd"), spaceAfter=16))
 
     if not rows:
@@ -428,7 +435,7 @@ def export_pdf():
     doc.build(story)
     buffer.seek(0)
 
-    filename = f"task_report.pdf"
+    filename = f"task_report_{datetime.now().strftime('%Y-%m-%d')}.pdf"
     return StreamingResponse(
         buffer,
         media_type="application/pdf",
