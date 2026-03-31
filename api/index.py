@@ -428,7 +428,7 @@ def export_pdf():
     doc.build(story)
     buffer.seek(0)
 
-    filename = f"work_log_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+    filename = f"task_report.pdf"
     return StreamingResponse(
         buffer,
         media_type="application/pdf",
