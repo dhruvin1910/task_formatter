@@ -88,7 +88,7 @@ async def generate(req: GenerateRequest):
 Rules:
 - Start with exactly: "Today's work"
 - Add a blank line after "Today's work"
-- List each task on its own line as a clear and no need to give a descriptions.
+- List each task on its own line as a clear, professional one-line description
 - Fix any spelling or grammar
 - No bullet points, numbers, or dashes — plain task lines only
 - Add a blank line between each task
@@ -272,6 +272,7 @@ def admin():
   <div class="actions">
     <button class="btn" onclick="location.reload()">refresh</button>
     <button class="btn" onclick="clearAll()" style="border-color:#3a2020;color:var(--error)">clear all</button>
+    <a href="/export/pdf" class="btn" style="text-decoration:none;border-color:#1a3a20;color:var(--success)">⬇ export pdf</a>
     <span class="status">{total} entr{'y' if total == 1 else 'ies'}</span>
   </div>
 
@@ -337,3 +338,99 @@ def delete_entry(entry_id: int):
         cur.execute("DELETE FROM work_log WHERE id = %s", (entry_id,))
     conn.close()
     return {"message": "deleted"}
+
+
+@app.get("/export/pdf")
+def export_pdf():
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+
+    ensure_table()
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT formatted_text, work_date FROM work_log ORDER BY work_date DESC")
+        rows = cur.fetchall()
+    conn.close()
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=20*mm,
+        leftMargin=20*mm,
+        topMargin=20*mm,
+        bottomMargin=20*mm,
+    )
+
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "title", parent=styles["Normal"],
+        fontSize=18, fontName="Helvetica-Bold",
+        textColor=colors.HexColor("#111111"),
+        spaceAfter=4,
+    )
+    subtitle_style = ParagraphStyle(
+        "subtitle", parent=styles["Normal"],
+        fontSize=9, fontName="Helvetica",
+        textColor=colors.HexColor("#888888"),
+        spaceAfter=16,
+    )
+    date_style = ParagraphStyle(
+        "date", parent=styles["Normal"],
+        fontSize=11, fontName="Helvetica-Bold",
+        textColor=colors.HexColor("#222222"),
+        spaceBefore=12, spaceAfter=6,
+    )
+    task_style = ParagraphStyle(
+        "task", parent=styles["Normal"],
+        fontSize=10, fontName="Helvetica",
+        textColor=colors.HexColor("#333333"),
+        leading=18, spaceAfter=2,
+    )
+
+    story = []
+
+    # Header
+    story.append(Paragraph("Work Log", title_style))
+    generated = datetime.now().strftime("%d %b %Y")
+    story.append(Paragraph(f"Generated on {generated} · {len(rows)} entries", subtitle_style))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#dddddd"), spaceAfter=16))
+
+    if not rows:
+        story.append(Paragraph("No entries found.", task_style))
+    else:
+        for row in rows:
+            d = row["work_date"]
+            if isinstance(d, str):
+                d = datetime.strptime(d, "%Y-%m-%d").date()
+            date_str = d.strftime("%A, %d %B %Y")
+            story.append(Paragraph(date_str, date_style))
+            story.append(HRFlowable(width="100%", thickness=0.3, color=colors.HexColor("#eeeeee"), spaceAfter=6))
+
+            lines = row["formatted_text"].strip().split("\n")
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    story.append(Spacer(1, 4))
+                elif line == "Today's work":
+                    continue  # skip header line in PDF
+                else:
+                    story.append(Paragraph(f"• {line}", task_style))
+
+            story.append(Spacer(1, 10))
+
+    doc.build(story)
+    buffer.seek(0)
+
+    filename = f"work_log_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
